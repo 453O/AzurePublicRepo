@@ -1,0 +1,44 @@
+show NSG details
+
+resources
+| where type == "microsoft.network/networksecuritygroups"
+| project 
+    NSGName = name,
+    ResourceGroup = resourceGroup,
+    Location = location,
+    SecurityRules = properties.securityRules,
+    properties
+    | extend RuleCount = array_length(SecurityRules)
+| join kind=leftouter (
+    resources
+    | where type == "microsoft.network/networksecuritygroups"
+    | mv-expand Rule = properties.securityRules
+    | project 
+        NSGName = name,
+        RuleName = tostring(Rule.name),
+        Direction = tostring(Rule.properties.direction),
+        Priority = toint(Rule.properties.priority),
+        Access = tostring(Rule.properties.access),
+        Protocol = tostring(Rule.properties.protocol),
+        SourceAddressPrefix = tostring(Rule.properties.sourceAddressPrefix),
+        SourcePortRange = tostring(Rule.properties.sourcePortRange),
+        DestinationAddressPrefix = tostring(Rule.properties.destinationAddressPrefix),
+        DestinationPortRange = tostring(Rule.properties.destinationPortRange),
+        Description = tostring(Rule.properties.description)
+) on NSGName
+| project 
+    NSGName,
+    ResourceGroup,
+    Location,
+    RuleCount,
+    RuleName,
+    Direction,
+    Priority,
+    Access,
+    Protocol,
+    SourceAddressPrefix,
+    SourcePortRange,
+    DestinationAddressPrefix,
+    DestinationPortRange,
+    Description,
+    properties

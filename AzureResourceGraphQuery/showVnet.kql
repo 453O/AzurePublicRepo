@@ -1,0 +1,14 @@
+// this shows vnet name, RG, location, addressPrefixes
+resources
+| where type == "microsoft.network/virtualnetworks"
+| project 
+    name, 
+    resourceGroup, 
+    location, 
+    addressPrefixes = properties.addressSpace.addressPrefixes
+| mv-expand addressPrefixes
+| where addressPrefixes != ""
+| extend addressPrefix = tostring(addressPrefixes)
+| where addressPrefix has "192.168.1" // Basic string filter for the IP range
+| project name, resourceGroup, location, addressPrefix
+| order by name asc

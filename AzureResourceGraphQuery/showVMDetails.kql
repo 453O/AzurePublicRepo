@@ -43,15 +43,8 @@ resources
         subscriptionId,
         subscriptionName = name
 ) on subscriptionId
-| extend subscriptionType = case(
-    tolower(subscriptionName) contains "pd" or 
-    tolower(subscriptionName) contains "prod" or 
-    tolower(subscriptionName) contains "production", "PD",
-    "NP"
-)
 | project 
     vmName,
-    subscriptionType,
     vmStatus,
     privateIp,
     publicIpAddress,

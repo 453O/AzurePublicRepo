@@ -148,9 +148,7 @@ Resources
         nicId = id, 
         nicName = name, 
         primary = tostring(properties.primary), 
-        privateIp = properties.ipConfigurations[
-    0
-].properties.privateIPAddress,
+        privateIp = properties.ipConfigurations[0].properties.privateIPAddress,
         macAddress = tostring(properties.macAddress)
 ) on nicId
 | project-away nicId1
@@ -165,3 +163,65 @@ Resources
     primary, 
     privateIp, 
     macAddress
+
+
+//-------------------------------------------------------------------------------------
+// show
+// vmnane, status, privateIP, pubP, macAddr, subName,rgName, location, resourceId, subID
+
+resources
+| where type =~ 'microsoft.compute/virtualmachines'
+| extend vmId = tolower(id)
+| extend VMSize=properties.hardwareProfile.vmSize, OSType=properties.storageProfile.osDisk.osType,vmID=properties.hardware,resourceId = id
+| extend vmStatus = tostring(properties.extended.instanceView.powerState.displayStatus)
+| extend vmStatus = case(
+        tolower(vmStatus) == "vm running", "Running",
+        tolower(vmStatus) in ("vm stopped", "vm deallocated"), "Stopped",
+        vmStatus)
+| project vmId,resourceId, vmName = name, resourceGroup, subscriptionId, location,vmStatus
+| join kind=leftouter (
+    resources
+    | where type =~ 'microsoft.network/networkinterfaces'
+    | extend vmNicId = tolower(properties.virtualMachine.id)
+    | mv-expand ipconfig = properties.ipConfigurations
+    | extend 
+        nicId = tolower(id),
+        privateIp = tostring(ipconfig.properties.privateIPAddress),
+        publicIp= tostring(ipconfig.properties.publicIPAddress),
+        publicIpId = tostring(ipconfig.properties.publicIPAddress.id),
+        macAddress = tostring(properties.macAddress)
+    | project privateIp,publicIp, publicIpId,vmNicId, nicId, nicName = name,macAddress
+) on $left.vmId == $right.vmNicId
+| join kind=leftouter (
+    resources
+    | where type =~ 'microsoft.network/publicipaddresses'
+    | project publicIpId = id, publicIpAddress = tostring(properties.ipAddress)
+) on publicIpId
+| project 
+    vmName,
+    resourceId,
+    subscriptionId,
+    resourceGroup,
+    location,
+    privateIp,
+    publicIpAddress,
+    vmStatus,
+    macAddress
+| join kind=leftouter (
+    resourcecontainers
+    | where type =~ 'microsoft.resources/subscriptions'
+    | project 
+        subscriptionId,
+        subscriptionName = name
+) on subscriptionId
+| project 
+    vmName,
+    vmStatus,
+    privateIp,
+    publicIpAddress,
+    macAddress,
+    subscriptionName,
+    resourceGroup,
+    location,
+    resourceId,
+    subscriptionId

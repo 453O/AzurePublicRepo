@@ -1,3 +1,5 @@
+// Default
+
 resources
 | where type =~ 'microsoft.compute/virtualmachines'
 | extend vmId = tolower(id)
@@ -58,3 +60,115 @@ resources
     location,
     resourceId,
     subscriptionId
+
+// -------------------------------------------------------------------------------------------
+
+// show VM and all NIc and NSG
+// Part 1: VMs with NIC-level NSG rules allowing 0.0.0.0/0
+let NicExposedVMs = resources
+| where type == "microsoft.compute/virtualmachines"
+| extend vmId = tolower(id)
+| join kind=leftouter (
+    resources
+    | where type == "microsoft.network/networkinterfaces"
+    | extend nicProperties = properties
+    | project nicId = tolower(id), nicName = name, vmRef = tolower(properties.virtualMachine.id), 
+              nsgRef = tolower(properties.networkSecurityGroup.id), subnetRef = tolower(properties.ipConfigurations[0].properties.subnet.id),
+              publicIP = iff(array_length(properties.ipConfigurations) > 0 and isnotempty(properties.ipConfigurations[0].properties.publicIPAddress), "Yes", "No")
+) on $left.vmId == $right.vmRef
+| where isnotempty(nicId)
+| join kind=leftouter (
+    resources
+    | where type == "microsoft.network/networksecuritygroups"
+    | extend nsgId = tolower(id), nsgRules = properties.securityRules
+    | mv-expand nsgRules
+    | where nsgRules.properties.direction == "Inbound"
+    | where nsgRules.properties.sourceAddressPrefix == "0.0.0.0/0" or array_length(nsgRules.properties.sourceAddressPrefixes) > 0 and "0.0.0.0/0" in (nsgRules.properties.sourceAddressPrefixes)
+    | project nsgId, ruleName = nsgRules.name, destinationPortRange = nsgRules.properties.destinationPortRange, protocol = nsgRules.properties.protocol
+) on $left.nsgRef == $right.nsgId
+| where isnotempty(ruleName)
+| project vmName = name, subscriptionId, resourceGroup, location, nicName, publicIP, 
+          exposedVia = "NIC", ruleName, destinationPortRange, protocol;
+
+// Part 2: VMs with Subnet-level NSG rules allowing 0.0.0.0/0
+let SubnetExposedVMs = resources
+| where type == "microsoft.compute/virtualmachines"
+| extend vmId = tolower(id)
+| join kind=leftouter (
+    Resources
+    | where type == "microsoft.network/networkinterfaces"
+    | project nicId = tolower(id), nicName = name, vmRef = tolower(properties.virtualMachine.id), 
+              subnetRef = tolower(properties.ipConfigurations[0].properties.subnet.id),
+              publicIP = iff(array_length(properties.ipConfigurations) > 0 and isnotempty(properties.ipConfigurations[0].properties.publicIPAddress), "Yes", "No")
+) on $left.vmId == $right.vmRef
+| where isnotempty(nicId)
+| join kind=leftouter (
+    resources
+    | where type == "microsoft.network/virtualnetworks"
+    | mv-expand subnet = properties.subnets
+    | extend subnetId = tolower(subnet.id), subnetNsgRef = tolower(subnet.properties.networkSecurityGroup.id)
+    | project subnetId, subnetNsgRef
+) on $left.subnetRef == $right.subnetId
+| join kind=leftouter (
+    resources
+    | where type == "microsoft.network/networksecuritygroups"
+    | extend nsgId = tolower(id), nsgRules = properties.securityRules
+    | mv-expand nsgRules
+    | where nsgRules.properties.direction == "Inbound"
+    | where nsgRules.properties.sourceAddressPrefix == "0.0.0.0/0" or array_length(nsgRules.properties.sourceAddressPrefixes) > 0 and "0.0.0.0/0" in (nsgRules.properties.sourceAddressPrefixes)
+    | project nsgId, ruleName = nsgRules.name, destinationPortRange = nsgRules.properties.destinationPortRange, protocol = nsgRules.properties.protocol
+) on $left.subnetNsgRef == $right.nsgId
+| where isnotempty(ruleName)
+| project vmName = name, subscriptionId, resourceGroup, location, nicName, publicIP, 
+          exposedVia = "Subnet", ruleName, destinationPortRange, protocol;
+
+// Combine results
+NicExposedVMs
+| union SubnetExposedVMs
+| order by vmName asc
+
+// ---------------------------------------------------------------------------------------------
+
+//shows VM, NAME, NIC, PrivateIP, Public IP
+
+Resources
+| where type =~ 'microsoft.compute/virtualmachines'
+| project 
+    vmId = id, 
+    vmName = name, 
+    resourceGroup, 
+    subscriptionId, 
+    location, 
+    networkInterfaces = properties.networkProfile.networkInterfaces
+| mv-expand networkInterfaces
+| project 
+    vmId, 
+    vmName, 
+    resourceGroup, 
+    subscriptionId, 
+    location, 
+    nicId = tostring(networkInterfaces.id)
+| join kind=leftouter (
+    Resources
+    | where type =~ 'microsoft.network/networkinterfaces'
+    | project 
+        nicId = id, 
+        nicName = name, 
+        primary = tostring(properties.primary), 
+        privateIp = properties.ipConfigurations[
+    0
+].properties.privateIPAddress,
+        macAddress = tostring(properties.macAddress)
+) on nicId
+| project-away nicId1
+| project 
+    vmId, 
+    vmName, 
+    resourceGroup, 
+    subscriptionId, 
+    location, 
+    nicId, 
+    nicName, 
+    primary, 
+    privateIp, 
+    macAddress

@@ -225,3 +225,171 @@ resources
     location,
     resourceId,
     subscriptionId
+
+    ///------------------------------------------------------------------------
+    // show vm 
+
+    resources
+| where type =~ 'microsoft.compute/virtualmachines'
+| extend azure_vmID = tostring(properties.vmId)
+| extend 
+    azure_resourceID= tolower(id),
+    VMSize=properties.hardwareProfile.vmSize,
+    OSType=properties.storageProfile.osDisk.osType,
+    vmID=properties.hardware,
+    vmStatus = tostring(properties.extended.instanceView.powerState.displayStatus),
+    osType=properties.storageProfile.osDisk.osType,
+    osInfo=properties.storageProfile.imageReference.exactVersion
+| extend vmStatus = case(
+        tolower(vmStatus) == "vm running", "Running",
+        tolower(vmStatus) in ("vm stopped", "vm deallocated"), "Stopped",
+        vmStatus)
+| project 
+    azure_resourceID,
+    azure_vmID,
+    vmName = name,
+    resourceGroup,
+    subscriptionId,
+    location,
+    vmStatus,
+    tags,
+    osType,
+    osInfo
+| join kind=leftouter (
+    resources
+    | where type =~ 'microsoft.network/networkinterfaces'
+    | extend vmNicId = tolower(properties.virtualMachine.id)
+    | mv-expand ipconfig = properties.ipConfigurations
+    | extend 
+        nicId = tolower(id),
+        privateIp = tostring(ipconfig.properties.privateIPAddress),
+        publicIp= tostring(ipconfig.properties.publicIPAddress),
+        publicIpId = tostring(ipconfig.properties.publicIPAddress.id),
+        macAddress = tostring(properties.macAddress)
+    | project privateIp,publicIp, publicIpId,vmNicId, nicId, nicName = name,macAddress
+) on $left.azure_resourceID== $right.vmNicId
+| join kind=leftouter (
+    resources
+    | where type =~ 'microsoft.network/publicipaddresses'
+    | project publicIpId = id, publicIpAddress = tostring(properties.ipAddress)
+) on publicIpId
+| project 
+    vmName,
+    azure_vmID,
+    subscriptionId,
+    resourceGroup,
+    location,
+    privateIp,
+    publicIpAddress,
+    vmStatus,
+    macAddress,
+    azure_resourceID,
+    osType,
+    osInfo
+| join kind=leftouter (
+    resourcecontainers
+    | where type =~ 'microsoft.resources/subscriptions'
+    | project 
+        subscriptionId,
+        subscriptionName = name
+) on subscriptionId
+| project 
+    azure_vmName,
+    azure_vmStatus,
+    azure_privateIp,
+    azure_publicIpAddress,
+    azure_vm_macAddress,
+    azure_resourceID,
+    azure_vmID,
+    azure_subscriptionName,
+    azure_resourceGroup,
+    azure_location,
+    azure_subscriptionId,
+    azure_vm_osType,
+    azure_osInfo
+
+
+    //================================================================
+    // 23 Mar 25
+
+    resources
+| where type =~ 'microsoft.compute/virtualmachines'
+| extend azure_vmID = tostring(properties.vmId)
+| extend 
+    azure_vmName=name,
+    azure_resourceID= tolower(id),
+    VMSize=properties.hardwareProfile.vmSize,
+    azure_vm_osType=properties.storageProfile.osDisk.osType,
+    vmID=properties.hardware,
+    azure_vmStatus = tostring(properties.extended.instanceView.powerState.displayStatus),
+    azure_osVersion=properties.storageProfile.imageReference.exactVersion,
+    azure_subscriptionId=subscriptionId,
+    azure_location = location,
+    azure_resourceGroup=resourceGroup
+| extend azure_vmStatus = case(
+        tolower(azure_vmStatus) == "vm running", "Running",
+        tolower(azure_vmStatus) in ("vm stopped", "vm deallocated"), "Stopped",
+        azure_vmStatus)
+| project 
+    azure_resourceID,
+    azure_vmID,
+    azure_vmName,
+    azure_resourceGroup,
+    azure_subscriptionId,
+    azure_location,
+    azure_vmStatus,
+    tags,
+    azure_vm_osType,
+    azure_osVersion
+| join kind=leftouter (
+    resources
+    | where type =~ 'microsoft.network/networkinterfaces'
+    | extend vmNicId = tolower(properties.virtualMachine.id)
+    | mv-expand ipconfig = properties.ipConfigurations
+    | extend 
+        nicId = tolower(id),
+        azure_privateIp = tostring(ipconfig.properties.privateIPAddress),
+        azure_publicIp= tostring(ipconfig.properties.publicIPAddress),
+        azure_publicIpId = tostring(ipconfig.properties.publicIPAddress.id),
+        azure_vm_macAddress = tostring(properties.macAddress)
+    | project azure_privateIp,azure_publicIp, azure_publicIpId,vmNicId, nicId, nicName = name,azure_vm_macAddress
+) on $left.azure_resourceID== $right.vmNicId
+| join kind=leftouter (
+    resources
+    | where type =~ 'microsoft.network/publicipaddresses'
+    | project azure_publicIpId = id, azure_publicIp = tostring(properties.ipAddress)
+) on azure_publicIpId
+| project 
+    azure_vmName,
+    azure_vmID,
+    azure_subscriptionId,
+    azure_resourceGroup,
+    azure_location,
+    azure_privateIp,
+    azure_publicIp,
+    azure_vmStatus,
+    azure_vm_macAddress,
+    azure_resourceID,
+    azure_vm_osType,
+    azure_osVersion
+| join kind=leftouter (
+    resourcecontainers
+    | where type =~ 'microsoft.resources/subscriptions'
+    | project 
+        azure_subscriptionId=subscriptionId,
+        azure_subscriptionName = name
+) on azure_subscriptionId
+| project 
+    azure_vmName,
+    azure_vmStatus,
+    azure_privateIp,
+    azure_publicIp,
+    azure_vm_macAddress,
+    azure_resourceID,
+    azure_vmID,
+    azure_subscriptionName,
+    azure_resourceGroup,
+    azure_subscriptionId,
+    azure_location,
+    azure_vm_osType,
+    azure_osVersion
